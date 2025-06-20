@@ -1,0 +1,36 @@
+---
+- name: Configure SSH authorized_keys on target servers
+  hosts: all_servers # Or 'all_servers' if app-server also needs this
+  become: yes # Use sudo to manage files in /home/vagrant/.ssh if running as vagrant user
+  tasks:
+    - name: Ensure .ssh directory exists and has correct permissions
+      ansible.builtin.file:
+        path: /home/vagrant/.ssh
+        state: directory
+        mode: '0700'
+        owner: vagrant
+        group: vagrant
+
+    - name: Add app-server's Vagrant-generated public key to authorized_keys
+      ansible.builtin.shell: |
+        ssh-keygen -y -f /vagrant/.vagrant/machines/app-server/virtualbox/private_key >> /home/vagrant/.ssh/authorized_keys
+      # This 'creates' flag prevents the task from running if the expected key is already there.
+      # You'd need to adapt this logic if you have multiple keys or more complex checks.
+      args:
+        creates: /home/vagrant/.ssh/authorized_keys # Or check for the key's presence in the file
+      # Note: The 'creates' argument in shell/command modules is for idempotency.
+      # If you're adding multiple keys, you might need a different approach (e.g., 'lineinfile' module).
+
+    - name: Ensure authorized_keys has correct permissions
+      ansible.builtin.file:
+        path: /home/vagrant/.ssh/authorized_keys
+        mode: '0600'
+        owner: vagrant
+        group: vagrant
+
+    - name: Ensure SSH files belong to vagrant user
+      ansible.builtin.file:
+        path: /home/vagrant/.ssh
+        owner: vagrant
+        group: vagrant
+        recurse: yes # Apply ownership recursively if there were other files

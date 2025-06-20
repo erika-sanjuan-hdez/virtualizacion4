@@ -1,0 +1,18 @@
+# /vagrant/ansible/playbooks/roles/coredns/handlers/main.yml
+---
+- name: Restart coredns
+  ansible.builtin.systemd:
+    name: coredns
+    state: restarted
+
+- name: Daemon reload and Restart coredns
+  ansible.builtin.systemd:
+    daemon_reload: yes # Reloads systemd daemon to recognize new/changed service files
+    name: coredns
+    state: restarted
+
+- name: Reload ufw
+  # Usa el módulo 'command' para ejecutar 'ufw reload'
+  ansible.builtin.command: ufw reload
+  # Asegúrate de que el comando no reporta un cambio a menos que realmente lo haya
+  changed_when: true # UFW reload siempre significa que un cambio potencial fue aplicado

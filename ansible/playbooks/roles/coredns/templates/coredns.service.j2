@@ -1,0 +1,17 @@
+[Unit]
+Description=CoreDNS DNS server
+Requires=network-online.target
+After=network-online.target
+
+[Service]
+# Asegúrate que la ruta al binario sea correcta
+ExecStart=/usr/local/bin/coredns -conf /etc/coredns/Corefile
+# Asegúrate que el WorkingDirectory apunte al directorio del Corefile
+WorkingDirectory=/etc/coredns
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target

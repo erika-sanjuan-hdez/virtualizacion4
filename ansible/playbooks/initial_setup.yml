@@ -1,0 +1,85 @@
+---
+- name: Perform initial setup for all servers
+  hosts: all_servers # Este grupo debe estar definido en tu inventory.ini
+  become: yes          # Ejecutar como root (sudo)
+  vars:
+    dns_primary_ip: 192.168.56.12 # Definimos la variable aquí
+
+  tasks:
+    - name: Ensure apt cache is up to date
+      ansible.builtin.apt:
+        update_cache: yes
+        cache_valid_time: 3600 # Cachear por 1 hora
+
+    - name: Upgrade all installed packages
+      ansible.builtin.apt:
+        upgrade: dist
+        autoremove: yes
+
+    - name: Install common utilities
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - git
+          - net-tools # Para ifconfig, netstat
+          - iputils-ping # Para ping
+          - dnsutils # Para dig, nslookup
+          - ufw # Firewall (para Ubuntu/Debian)
+        state: present
+
+    #- name: Configure UFW (Uncomplicated Firewall) defaults
+    #  ansible.builtin.ufw:
+    #    state: enabled
+    #    policy: deny # Denegar todas las conexiones entrantes por defecto
+    #  when: configure_firewall | default(true)  # Se ejecuta si 'configure_firewall' es true o no está definida
+
+    #- name: Allow SSH traffic (port 22)
+    #  ansible.builtin.ufw:
+    #    rule: allow
+    #    port: '22'
+    #    proto: tcp
+    #  when: configure_firewall | default(true)  # Se ejecuta si 'configure_firewall' es true o no está definida
+    #  notify: Reload ufw
+
+    - name: Ensure SSH service is running and enabled
+      ansible.builtin.service:
+        name: sshd # O 'ssh' en algunas distros
+        state: started
+        enabled: yes
+
+    # --- Configuración DNS de clientes (db-server y app-server) ---
+    # Esto es CRÍTICO que se ejecute *después* de que dns-server esté operativo.
+    # Por eso, a veces es mejor tener un playbook separado (client_dns_config.yml)
+    # o ejecutarlo explícitamente después de dns_setup.yml.
+    # Sin embargo, si dns-server se levanta primero y este playbook se ejecuta en segundo lugar,
+    # y el CoreDNS está mínimamente configurado, puede funcionar.
+    # Aquí lo colocamos con una dependencia para asegurar que 'dns-server' esté accesible.
+    - name: Configure resolv.conf to use internal DNS server
+      ansible.builtin.template:
+        src: ../templates/resolv.conf.j2 # Asume que esta plantilla existe
+        dest: /etc/resolv.conf
+        mode: '0644'
+      when: inventory_hostname != 'dns-server' # No aplicar esto al dns-server mismo
+      notify: Restart systemd-resolved # En Ubuntu 18.04+
+
+    - name: Add search domain to /etc/resolv.conf
+      ansible.builtin.lineinfile:
+        path: /etc/resolv.conf
+        line: "search unam.local"
+        insertafter: EOF
+        state: present
+      when: inventory_hostname != 'dns-server'
+      notify: Restart systemd-resolved
+
+  handlers:
+    - name: Reload ufw
+      listen: "Reload ufw"
+      command: ufw reload
+
+    - name: Restart systemd-resolved
+      listen: "Restart systemd-resolved"
+      ansible.builtin.service:
+        name: systemd-resolved
+        state: restarted
+      when: ansible_service_mgr == "systemd" and ansible_distribution == "Ubuntu" and ansible_distribution_version is version('18.04', '>=')

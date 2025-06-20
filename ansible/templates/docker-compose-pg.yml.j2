@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine # Usar una imagen oficial de PostgreSQL
+    container_name: postgres_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "{{ postgres_db_name | default('personas_db') }}"
+      POSTGRES_USER: "{{ postgres_user | default('admin') }}"
+      POSTGRES_PASSWORD: "{{ postgres_password | default('your_strong_password') }}"
+    volumes:
+      - /opt/postgresql/data:/var/lib/postgresql/data # Volumen persistente
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro # Ejecuta scripts SQL al inicio
+    ports:
+      - "5432:5432" # Expone el puerto 5432
+    networks:
+      - internal_network
+
+networks:
+  internal_network:
+    driver: bridge

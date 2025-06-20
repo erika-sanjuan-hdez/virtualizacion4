@@ -1,0 +1,32 @@
+# /vagrant/ansible/roles/app/tasks/main.yml
+---
+# (Otras tareas de tu rol 'app', por ejemplo, instalación de Python,
+# creación de venv, copia de api.py y requirements.txt, instalación de dependencias, etc.)
+# ...
+
+# Tarea para copiar el archivo de servicio systemd
+- name: Copy Flask API systemd service file
+  ansible.builtin.template:
+    src: flask_api.service.j2           # <-- Aquí es donde Ansible busca en 'roles/app/templates/'
+    dest: /etc/systemd/system/flask_api.service
+    mode: '0644'
+  become: yes
+
+- name: Reload systemd daemon to recognize new service
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  become: yes
+
+- name: Enable Flask API service to start on boot
+  ansible.builtin.systemd:
+    name: flask_api
+    enabled: yes
+  become: yes
+
+- name: Start Flask API service
+  ansible.builtin.systemd:
+    name: flask_api
+    state: started
+  become: yes
+
+# ... (Posibles handlers si los tienes, como para recargar ufw) ...

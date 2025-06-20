@@ -1,0 +1,17 @@
+unam.local:53 {
+    hosts {
+        192.168.56.10 db-server.unam.local
+        192.168.56.11 app-server.unam.local
+        192.168.56.12 dns-server.unam.local
+        fallthrough
+    }
+    log
+    errors
+}
+
+. {
+    forward . 8.8.8.8 8.8.4.4
+    log
+    errors
+    cache 30
+}

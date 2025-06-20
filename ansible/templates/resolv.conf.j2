@@ -1,0 +1,7 @@
+# Archivo de configuración resolv.conf para {{ ansible_hostname }}
+# Gestionado por Ansible
+
+nameserver {{ dns_primary_ip }}
+nameserver 8.8.8.8
+nameserver 1.1.1.1
+search unam.local

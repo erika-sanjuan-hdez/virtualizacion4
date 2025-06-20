@@ -1,0 +1,16 @@
+[Unit]
+Description=Flask API Application
+After=network.target network-online.target # Esperar que la red esté disponible
+
+[Service]
+WorkingDirectory=/opt/app
+
+ExecStart=/opt/app/venv/bin/python api.py
+
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,138 @@
+---
+- name: Configure Database server (PostgreSQL on Docker)
+  hosts: db-server
+  become: yes
+
+  tasks:
+    - name: Actualizar caché de apt
+      ansible.builtin.apt:
+        update_cache: yes
+    # Asumimos que Docker ya está instalado por el Vagrantfile.
+    # Si no, las tareas para instalar Docker irían aquí o en un rol 'docker'.
+    - name: Asegurar que Python3 y pip estén instalados
+      ansible.builtin.apt:
+        name: python3-pip
+        state: present
+
+    - name: Instalar dependencias de compilación para paquetes Python
+      ansible.builtin.apt:
+        name:
+          - python3-dev
+          - build-essential
+          - libssl-dev
+          - libffi-dev
+        state: present
+
+    # 
+    - name: Actualizar pip, setuptools y wheel
+      ansible.builtin.pip:
+        name:
+          - pip
+          - setuptools
+          - wheel
+        state: latest
+        executable: pip3
+
+    - name: Instalar librerías Docker SDK para Python y requests
+      ansible.builtin.pip:
+        name:
+          - docker==6.1.3 # Keep this for the Ansible module
+          - requests==2.31.0 # Force requests package version
+        state: forcereinstall
+        executable: pip3
+
+    - name: Instalar la librería 'docker-compose' para que el módulo de Ansible la use
+      ansible.builtin.pip:
+        name: docker-compose # ¡Esta es la librería que el módulo busca!
+        state: present
+        executable: pip3
+
+    - name: Ensure Docker CLI plugins directory exists
+      ansible.builtin.file:
+        path: /usr/local/lib/docker/cli-plugins
+        state: directory
+        mode: '0755' # Permisos estándar para directorios de ejecutables/librerías
+        owner: root
+        group: root
+
+    # Asegurar la última versión de la librería Docker Compose para Python
+    #- name: Actualizar librería Docker Compose para Python
+    #  ansible.builtin.pip:
+    #    name: docker-compose==1.29.2
+    #    state: forcereinstall # Usar 'present' cuando especificas la versión
+    #    executable: pip3 # Usar explícitamente pip3
+
+    - name: Descargar e instalar el binario de Docker Compose V2
+      ansible.builtin.get_url:
+        # URL oficial para la versión 2.27.0 (la más reciente al 19 de junio de 2025)
+        # Siempre revisa https://github.com/docker/compose/releases para la última versión estable.
+        url: https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64
+        dest: /usr/local/lib/docker/cli-plugins/docker-compose # Ubicación recomendada para plugins de Docker CLI
+        mode: '0755' # Asegura que el archivo tenga permisos de ejecución
+        # Opcional: añade un checksum para mayor seguridad. Puedes encontrarlo en la página de release.
+        # checksum: sha256:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+    # Si quieres que el comando `docker-compose` (con guion) también funcione por compatibilidad,
+    # crea un symlink desde el plugin:
+    - name: Crear symlink para 'docker-compose' (compatibilidad con V1)
+      ansible.builtin.file:
+        src: /usr/local/lib/docker/cli-plugins/docker-compose
+        dest: /usr/local/bin/docker-compose # Este será el comando `docker-compose` con guion
+        state: link
+        force: yes # Sobrescribe si ya existe
+
+    - name: Create directory for PostgreSQL data volume
+      ansible.builtin.file:
+        path: /opt/postgresql/data # Ruta para el volumen persistente
+        state: directory
+        owner: '999' # UID por defecto del usuario postgres dentro del contenedor oficial
+        group: '999' # GID por defecto
+        mode: '0775' # Permisos restringidos para los datos de la DB
+
+    - name: Copy init.sql for PostgreSQL container initialization
+      ansible.builtin.copy:
+        src: ../files/init.sql # <--- Ajusta la ruta aquí
+        dest: /opt/postgresql/init.sql
+        mode: '0644'
+
+    - name: Copy docker-compose.yml for PostgreSQL
+      ansible.builtin.template:
+        src: ../templates/docker-compose-pg.yml.j2
+        dest: /opt/postgresql/docker-compose.yml
+        mode: '0644'
+
+    - name: Iniciar contenedor PostgreSQL usando docker-compose
+      community.docker.docker_compose: # Necesitas `pip install docker` en el controlador Ansible
+        project_src: /opt/postgresql
+        state: present
+      environment: # <--- AGREGAR ESTO
+        DOCKER_HOST: unix:///var/run/docker.sock
+      # Si solo tienes `docker-compose` como binario, usa `ansible.builtin.command`:
+      # command: docker-compose up -d
+      # args:
+      #   chdir: /opt/postgresql
+
+    #- name: Create initial PostgreSQL database and user (optional, can be done via Docker entrypoint)
+      # Esto puede hacerse con un script SQL que Docker ejecuta al iniciar el contenedor
+      # O un script Python que se conecta y lo hace
+      # O usando el módulo community.postgresql.postgresql_db/user
+      # Ejemplo muy simplificado:
+      # - name: Ensure database 'mydatabase' exists
+      #   community.postgresql.postgresql_db:
+      #     name: mydatabase
+      #     state: present
+      #     login_host: localhost # O la IP del contenedor si es accesible
+      #     login_user: postgres
+      #     login_password: "{{ postgres_root_password }}" # Usar variables seguras de Ansible Vault
+
+    - name: Configure UFW to allow PostgreSQL traffic (port 5432) from app-server only
+      ansible.builtin.ufw:
+        rule: allow
+        port: '5432'
+        proto: tcp
+        from_ip: 192.168.56.11 # Permitir solo desde app-server
+      notify: Reload ufw
+
+  handlers:
+    - name: Reload ufw
+      command: ufw reload

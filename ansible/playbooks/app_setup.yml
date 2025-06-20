@@ -1,0 +1,97 @@
+---
+- name: Configure Application server (Python app)
+  hosts: app-server
+  become: yes
+
+  tasks:
+    # Asumimos que Python y pip ya están instalados por el Vagrantfile.
+
+    - name: Create application directory
+      ansible.builtin.file:
+        path: /opt/app
+        state: directory
+        owner: vagrant # O un usuario de la aplicación específico
+        group: vagrant
+        mode: '0755'
+
+    - name: Copy Python application scripts
+      ansible.builtin.copy:
+        src: ../../scripts_python/ # Copia todo el contenido del directorio scripts_python
+        dest: /opt/app/
+        owner: vagrant
+        group: vagrant
+        mode: '0644'
+
+    - name: Install Python dependencies
+      ansible.builtin.pip:
+        requirements: /opt/app/requirements.txt
+        virtualenv: /opt/app/venv # Opcional: usar un entorno virtual
+        virtualenv_command: python3 -m venv
+
+    # Crear el entorno virtual y instalar dependencias
+    - name: Create Python virtual environment
+      ansible.builtin.command: python3 -m venv /opt/app/venv
+      args:
+        creates: /opt/app/venv/bin/activate # Solo si el venv no existe
+      become: yes
+      become_user: vagrant # Ejecuta como usuario vagrant
+
+    - name: Configure UFW to allow SSH only (assuming no public web server here yet)
+      # Si tu API REST va a escuchar en un puerto (ej. 5000 para Flask), lo abrirías aquí
+      # ansible.builtin.ufw:
+      #   rule: allow
+      #   port: '5000'
+      #   proto: tcp
+      #   direction: in
+      # notify: Reload ufw
+      ansible.builtin.ufw:
+        rule: allow
+        name: OpenSSH # O permitir puerto 22
+      notify: Reload ufw
+
+    # 6. Configurar y habilitar el servicio systemd para la aplicación Flask
+    #    Para esto, necesitas una plantilla 'flask_api.service.j2' en tu directorio 'templates' del rol 'app'
+    #    (Ver el ejemplo de flask_api.service.j2 en la respuesta anterior)
+    - name: Copy Flask API systemd service file
+      ansible.builtin.template:
+        src: flask_api.service.j2 # Asegúrate de que esta plantilla exista en roles/app/templates/
+        dest: /etc/systemd/system/flask_api.service
+        mode: '0644'
+      become: yes
+
+    - name: Reload systemd daemon to recognize new service
+      ansible.builtin.systemd:
+        daemon_reload: yes
+      become: yes
+
+    - name: Enable Flask API service to start on boot
+      ansible.builtin.systemd:
+        name: flask_api
+        enabled: yes
+      become: yes
+
+    - name: Start Flask API service
+      ansible.builtin.systemd:
+        name: flask_api
+        state: started
+      become: yes
+    #- name: Start Python API/script (if applicable)
+      # Si tienes una API Flask/FastAPI que se ejecute continuamente,
+      # la configurarías como un servicio systemd aquí.
+      # Ejemplo (para una API Flask):
+      # - name: Copy systemd service file for API
+      #   ansible.builtin.template:
+      #     src: ../templates/app_api.service.j2
+      #     dest: /etc/systemd/system/app_api.service
+      #     mode: '0644'
+      # - name: Enable and start API service
+      #   ansible.builtin.systemd:
+      #     name: app_api
+      #     enabled: yes
+      #     state: started
+      #     daemon_reload: yes
+      
+
+  handlers:
+    - name: Reload ufw
+      command: ufw reload

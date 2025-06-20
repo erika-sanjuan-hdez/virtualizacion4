@@ -1,0 +1,14 @@
+[Unit]
+Description=CoreDNS DNS server
+Documentation=https://coredns.io
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/coredns -conf /etc/coredns/Corefile
+Restart=on-failure
+User=root # Considerar crear un usuario coredns
+Group=root # Y un grupo coredns
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target

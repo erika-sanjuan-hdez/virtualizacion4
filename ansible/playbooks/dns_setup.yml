@@ -1,0 +1,33 @@
+# /vagrant/ansible/playbooks/dns_setup.yml
+
+---
+- name: Configure DNS server (CoreDNS)
+  hosts: dns-server # Ejecuta este playbook solo en el host 'dns-server'
+  become: yes       # Requiere privilegios de root para instalación y configuración
+
+  # Puedes usar roles para organizar mejor tus tareas
+  roles:
+    - coredns # Este rol contendrá TODAS las tareas de instalación y configuración de CoreDNS
+
+  # Mueve TODAS las tareas de CoreDNS y UFW a roles/coredns/tasks/main.yml
+  # Deja aquí solo las tareas que sean verdaderamente GLOBALES al playbook
+  # Por ejemplo, una simple actualización de caché o tareas de verificación finales.
+  tasks:
+    - name: Update apt cache (Optional - can also be in role's main.yml)
+      ansible.builtin.apt:
+        update_cache: yes
+      when: ansible_os_family == "Debian"
+
+  # Los handlers también deben ir en el rol si son específicos de las tareas del rol
+  # Mueve todos los handlers relacionados con coredns y ufw a roles/coredns/handlers/main.yml
+  handlers:
+    # Si tienes handlers que son GENÉRICOS y pueden ser notificados por cualquier rol
+    # o tarea en el playbook, podrían quedarse aquí. Pero para coredns y ufw,
+    # es mejor que estén en el handler del rol.
+    # Ejemplo: Si tuvieras un handler 'Restart webserver' que se notifica desde varios roles
+    # o tareas del playbook, podría quedarse aquí.
+    - name: Reload ufw (Solo si lo notificas desde tareas FUERA de los roles)
+      listen: "Reload ufw"
+      ansible.builtin.command: ufw reload
+      # Considera mover este handler también al rol coredns si es el único que lo usa,
+      # o a un rol de 'common' o 'base' si múltiples roles/playbooks lo necesitan.

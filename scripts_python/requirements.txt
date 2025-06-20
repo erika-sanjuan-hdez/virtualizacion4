@@ -1,0 +1,3 @@
+psycopg2-binary # O 'psycopg2' si tienes dependencias de compilación
+Flask           # Si usas Flask
+gunicorn        # Servidor WSGI para Flask en producción

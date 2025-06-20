@@ -1,0 +1,114 @@
+---
+- name: Ensure CoreDNS binary is downloaded and extracted
+  ansible.builtin.unarchive:
+    src: "https://github.com/coredns/coredns/releases/download/v1.12.2/coredns_1.12.2_linux_amd64.tgz"
+    dest: "/usr/local/bin/"
+    remote_src: yes
+    # Cambia a --strip-components=1 si el archivo extraído contiene un directorio raíz (ej. coredns_1.12.2_linux_amd64/coredns)
+    # Si al extraer solo queda el binario `coredns` directamente en `dest`, entonces `strip-components=0` es correcto.
+    extra_opts: [--strip-components=0]
+  when: coredns_install_method | default('binary') == 'binary'
+
+- name: Set CoreDNS binary permissions
+  ansible.builtin.file:
+    path: "/usr/local/bin/coredns"
+    mode: '0755'
+  when: coredns_install_method | default('binary') == 'binary'
+
+# --- INICIO DE NUEVAS TAREAS PARA DESHABILITAR systemd-resolved ---
+
+- name: Stop systemd-resolved service
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+  ignore_errors: yes # Para evitar que falle si ya está detenido
+
+- name: Disable systemd-resolved service
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    enabled: no
+
+- name: Remove resolv.conf symlink managed by systemd-resolved
+  ansible.builtin.file:
+    path: /etc/resolv.conf
+    state: absent
+  when: ansible_os_family == "Debian" and ansible_distribution == "Ubuntu"
+
+- name: Create a basic resolv.conf for dns-server pointing to localhost
+  ansible.builtin.copy:
+    content: "nameserver 127.0.0.1\n"
+    dest: /etc/resolv.conf
+    mode: '0644'
+    force: yes
+
+# --- FIN DE NUEVAS TAREAS PARA DESHABILITAR systemd-resolved ---
+
+# --- INICIO DE NUEVAS TAREAS ---
+
+- name: Ensure CoreDNS configuration directory exists
+  ansible.builtin.file:
+    path: /etc/coredns
+    state: directory
+    mode: '0755'
+
+- name: Copy CoreDNS Corefile
+  ansible.builtin.template: # o `copy` si tu Corefile es estático y no usa variables de Jinja2
+    src: Corefile.j2 # Asegúrate de tener este archivo en roles/coredns/templates/
+    dest: /etc/coredns/Corefile
+    mode: '0644'
+
+# --- INICIO DE TAREAS UFW PARA DNS (¡NUEVAS ADICIONES CLAVE!) ---
+- name: Allow incoming DNS (UDP) traffic on port 53 for internal network
+  ansible.builtin.ufw:
+    rule: allow
+    port: '53'
+    proto: udp
+    from_ip: 192.168.56.0/24 # Permite el tráfico DNS desde toda tu red privada
+    state: enabled # Asegura que la regla esté activa
+  notify: Reload ufw # Asegúrate de tener este handler definido
+
+- name: Allow incoming DNS (TCP) traffic on port 53 for internal network
+  ansible.builtin.ufw:
+    rule: allow
+    port: '53'
+    proto: tcp
+    from_ip: 192.168.56.0/24 # Permite el tráfico DNS desde toda tu red privada
+    state: enabled # Asegura que la regla esté activa
+  notify: Reload ufw # Asegúrate de tener este handler definido
+
+- name: Allow incoming SSH (TCP) traffic on port 22
+  ansible.builtin.ufw:
+    rule: allow
+    port: '22'
+    proto: tcp
+    # Si quieres restringir de dónde viene el SSH, puedes usar:
+    # from_ip: 192.168.56.0/24 # Permitir SSH solo desde tu red privada
+    # Si no especificas from_ip, por defecto permite desde cualquier origen,
+    # lo cual es común para SSH en entornos de desarrollo de Vagrant.
+    state: enabled # Asegura que la regla esté activa
+  notify: Reload ufw
+# --- FIN DE TAREAS UFW PARA DNS ---
+
+- name: Create CoreDNS systemd service file
+  ansible.builtin.template:
+    src: coredns.service.j2 # Asegúrate de tener este archivo en roles/coredns/templates/
+    dest: /etc/systemd/system/coredns.service
+    mode: '0644'
+
+- name: Reload systemd daemon to recognize new service
+  ansible.builtin.systemd:
+    daemon_reload: yes
+
+- name: Enable CoreDNS service to start on boot
+  ansible.builtin.systemd:
+    name: coredns
+    enabled: yes
+
+- name: Start CoreDNS service
+  ansible.builtin.systemd:
+    name: coredns
+    state: started
+    # Esto es importante para capturar la salida si falla el arranque
+    # y puede ayudar a depurar si el Corefile tiene errores.
+    # Si deseas que Ansible ignore errores de arranque del servicio,
+    # puedes agregar `ignore_errors: yes` pero no es recomendable para depurar.
